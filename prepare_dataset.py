@@ -3,14 +3,16 @@ Dataset preparation: download from Kaggle, convert VOC XML annotations
 to YOLO format, and split into train/val sets.
 
 Usage:
-    python prepare_dataset.py              # expects Kaggle dataset already downloaded
+    python prepare_dataset.py              # download from Kaggle and prepare
     python prepare_dataset.py --demo       # generate synthetic demo data for testing
 """
 
 import argparse
 import random
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
+import zipfile
 
 import cv2
 import numpy as np
@@ -190,6 +192,46 @@ def generate_demo_data(num_images=30):
     return samples
 
 
+def download_from_kaggle():
+    """Download the car plate detection dataset from Kaggle."""
+    config.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = config.RAW_DIR / "car-plate-detection.zip"
+
+    print(f"  Downloading {config.KAGGLE_DATASET} from Kaggle...")
+    try:
+        subprocess.run(
+            [
+                "kaggle", "datasets", "download",
+                "-d", config.KAGGLE_DATASET,
+                "-p", str(config.RAW_DIR),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        print("  ERROR: kaggle CLI not found. Install with: pip install kaggle")
+        return False
+    except subprocess.CalledProcessError as e:
+        print(f"  ERROR: Kaggle download failed: {e.stderr}")
+        return False
+
+    if zip_path.exists():
+        print("  Extracting dataset...")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(config.RAW_DIR)
+        zip_path.unlink()
+
+    if config.IMAGES_DIR.exists() and config.ANNOTATIONS_DIR.exists():
+        n_imgs = len(list(config.IMAGES_DIR.glob("*.*")))
+        n_anns = len(list(config.ANNOTATIONS_DIR.glob("*.xml")))
+        print(f"  Downloaded {n_imgs} images and {n_anns} annotations")
+        return True
+
+    print("  ERROR: Expected images/ and annotations/ folders not found after extraction")
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prepare license plate dataset")
     parser.add_argument("--demo", action="store_true", help="Generate synthetic demo data")
@@ -203,25 +245,29 @@ def main():
         samples = generate_demo_data()
     else:
         if not config.IMAGES_DIR.exists() or not config.ANNOTATIONS_DIR.exists():
-            print(f"\n  Dataset not found at {config.RAW_DIR}")
-            print("  Download it from Kaggle:")
-            print(f"    kaggle datasets download -d {config.KAGGLE_DATASET}")
-            print(f"    unzip car-plate-detection.zip -d {config.RAW_DIR}")
-            print(f"\n  Or run with --demo flag to use synthetic data:")
-            print("    python prepare_dataset.py --demo")
-            return
+            print("\n[1/4] Downloading dataset from Kaggle...")
+            if not download_from_kaggle():
+                print("\n  Alternatively, run with --demo flag to use synthetic data:")
+                print("    python prepare_dataset.py --demo")
+                return
+            step_offset = 1
+        else:
+            print(f"\n  Dataset already exists at {config.RAW_DIR}")
+            step_offset = 0
 
-        print("\n[1/3] Converting VOC XML → YOLO format...")
+        print(f"\n[{2 + step_offset}/4] Converting VOC XML → YOLO format...")
         samples = convert_annotations()
 
     if not samples:
         print("  No samples to process.")
         return
 
-    print("\n[2/3] Splitting into train/val sets...")
+    step = 3 if not args.demo else 2
+    print(f"\n[{step}/{'4' if not args.demo else '3'}] Splitting into train/val sets...")
     split_dataset(samples)
 
-    print("\n[3/3] Writing dataset.yaml...")
+    step += 1
+    print(f"\n[{step}/{'4' if not args.demo else '3'}] Writing dataset.yaml...")
     write_dataset_yaml()
 
     print("\nDataset preparation complete!")

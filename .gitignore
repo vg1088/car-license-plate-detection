@@ -12,13 +12,16 @@ venv/
 env/
 
 # Model weights (downloaded on demand)
-*.pt
+models/
 *.pth
 *.onnx
 
-# Dataset files
-datasets/
+# Dataset files (downloaded via prepare_dataset.py)
 data/
+
+# Training outputs (regenerated via train.py)
+results/train/
+results/eval/
 
 # IDE
 .vscode/
